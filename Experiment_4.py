@@ -85,17 +85,11 @@ def save_top_peaks_report(corrected_df, sample_name, isotope_reference, output_d
     peak_energies = filtered_df[energy_unit].iloc[peaks]
     peak_counts = filtered_df['Counts'].iloc[peaks]
 
-    print(f"Filtered peak energies ({energy_unit}): {peak_energies}")
-    print(f"Filtered peak counts ({energy_unit}): {peak_counts}")
-
     # Get the top 25 peaks
     top_peaks_idx = peak_counts.nlargest(25).index
 
     top_peaks_energies = peak_energies.loc[top_peaks_idx]
     top_peaks_counts = peak_counts.loc[top_peaks_idx]
-
-    print(f"Top 25 peak energies: {top_peaks_energies}")
-    print(f"Top 25 peak counts: {top_peaks_counts}")
 
     matches = match_isotopes(top_peaks_energies, isotope_reference, tolerance=0.01 if energy_unit == 'MeV' else 1.0)
 
@@ -113,17 +107,22 @@ def save_top_peaks_report(corrected_df, sample_name, isotope_reference, output_d
 
     report = pd.DataFrame({
         f'Energy ({energy_unit})': top_peaks_energies,
-        'Counts': top_peaks_counts,
-        'Confidence Interval (95%)': confidence_intervals,
         'Counts +/- Confidence Interval': [f"{count} +/- {ci:.2f}" for count, ci in zip(top_peaks_counts, confidence_intervals)],
-        'Net Count Rate': net_count_rates,
-        'Net Count Rate StdDev': net_count_rate_stddev
+        'Count Rate +/- Confidence Interval': [f"{net_count_rate:.5f} +/- {net_count_rate_stddev:.5f}" for net_count_rate, net_count_rate_stddev in zip(net_count_rates, net_count_rate_stddev)]
     })
+
+    # Format the report output for better alignment
+    formatted_report = report.to_string(index=False).split('\n')
+    energy_header = f'Energy ({energy_unit})'
+    counts_header = 'Counts +/- Confidence Interval'
+    rate_header = 'Count Rate +/- Confidence Interval'
+    formatted_report[0] = f"{energy_header:^18} {counts_header:^36} {rate_header:^30}"
+    formatted_report = "\n".join(formatted_report)
 
     with open(f'{output_dir}\\{sample_name}_Top_25_Peaks_Report.txt', 'w') as f:
         f.write("Top 25 Peaks Report\n")
         f.write(f"Sample: {sample_name}\n\n")
-        f.write(report.to_string(index=False))
+        f.write(formatted_report)
         f.write("\n\nLikely Isotopes:\n")
         for match in matches:
             f.write(f"Energy: {match[0]:.2f} {energy_unit}, Isotope: {match[1]}, Reference Energy: {match[2]:.2f} {energy_unit}, Confidence: {match[3]*100:.2f}%\n")
@@ -145,7 +144,7 @@ def process_spectra(file_path, sheet_name, sample_names, energy_min, energy_max,
         save_top_peaks_report(corrected_df, f"{sample}_Alpha" if energy_unit == 'MeV' else f"{sample}_Gamma", isotope_reference, output_dir, energy_unit, T_s, T_b)
 
 def main(file_path):
-    output_dir = '.\\Output'
+    output_dir = r'C:\Users\17244\OneDrive\Grad School\NUCE 597\Exp4\Output'
     gamma_samples = ['Monazite', 'White Sand', 'LANL']
     alpha_samples = ['Monazite', 'White Sand', 'LANL']
 

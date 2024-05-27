@@ -1,5 +1,5 @@
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from scipy.signal import find_peaks
 from isotope_reference import alpha_isotope_reference, gamma_isotope_reference  # Import the isotope references
 
@@ -23,22 +23,8 @@ def match_isotopes(peak_energies, isotope_reference, tolerance=0.01):
                     matches.append((energy, isotope, iso_energy, confidence))
     return matches
 
-def plot_full_spectrum(corrected_df, sample_name, output_dir, energy_unit):
-    plt.figure(figsize=(12, 6))
-    plt.plot(corrected_df[energy_unit], corrected_df['Counts'], label=sample_name)
-    plt.xlabel(f'Energy ({energy_unit})')
-    plt.ylabel('Counts')
-    plt.legend()
-    plt.title(f'Corrected Spectrum ({sample_name})')
-    plt.grid(True)
-    plt.savefig(f'{output_dir}\\{sample_name}_Full_Spectrum.jpeg')
-    plt.close()
-
-def plot_zoomed_spectrum(corrected_df, sample_name, energy_min, energy_max, output_dir, energy_unit):
-    plt.figure(figsize=(12, 6))
-
+def plot_spectra_interactive(corrected_df, sample_name, energy_unit, energy_min, energy_max, output_dir):
     zoomed_df = corrected_df[(corrected_df[energy_unit] >= energy_min) & (corrected_df[energy_unit] <= energy_max)]
-    plt.plot(zoomed_df[energy_unit], zoomed_df['Counts'], label=f'{sample_name} ({energy_min}-{energy_max} {energy_unit})')
 
     # Determine height threshold dynamically as 10% of the maximum count value in the zoomed range
     height_threshold = zoomed_df['Counts'].max() * 0.1
@@ -54,22 +40,24 @@ def plot_zoomed_spectrum(corrected_df, sample_name, energy_min, energy_max, outp
     top_peaks_energies = peak_energies.loc[top_peaks_idx]
     top_peaks_counts = peak_counts.loc[top_peaks_idx]
 
-    plt.scatter(top_peaks_energies, top_peaks_counts, color='red')
+    fig = go.Figure()
 
-    for i, (energy, count) in enumerate(zip(top_peaks_energies, top_peaks_counts)):
-        # Calculate label positions
-        label_x = energy + 0.005 if energy_unit == 'MeV' else energy + 5  # Adjust this value for the desired distance
-        label_y = count
-        plt.plot([energy, label_x], [count, label_y], 'k-')
-        plt.text(label_x, label_y, f"{energy:.2f} {energy_unit}", va='center')
+    fig.add_trace(go.Scatter(x=corrected_df[energy_unit], y=corrected_df['Counts'],
+                             mode='lines', name=sample_name))
 
-    plt.xlabel(f'Energy ({energy_unit})')
-    plt.ylabel('Counts')
-    plt.legend()
-    plt.title(f'Corrected Spectrum and Top 5 Peak Labeling ({sample_name}, {energy_min}-{energy_max} {energy_unit})')
-    plt.grid(True)
-    plt.savefig(f'{output_dir}\\{sample_name}_Zoomed_Spectrum_{energy_min}_{energy_max}{energy_unit}.jpeg')
-    plt.close()
+    fig.add_trace(go.Scatter(x=top_peaks_energies, y=top_peaks_counts,
+                             mode='markers+text',
+                             text=[f'{energy:.2f} {energy_unit}' for energy in top_peaks_energies],
+                             textposition="top center",
+                             name='Top Peaks',
+                             marker=dict(color='red', size=10)))
+
+    fig.update_layout(title=f'Spectrum and Top 5 Peak Labeling ({sample_name}, {energy_min}-{energy_max} {energy_unit})',
+                      xaxis_title=f'Energy ({energy_unit})',
+                      yaxis_title='Counts')
+
+    fig.write_html(f'{output_dir}\\{sample_name}_Zoomed_Spectrum_{energy_min}_{energy_max}{energy_unit}.html')
+    fig.show()
 
 def save_top_peaks_report(corrected_df, sample_name, isotope_reference, output_dir, energy_unit, T_s, T_b=None):
     # Filter peaks for the specified range (1-6 MeV for alpha samples)
@@ -86,7 +74,7 @@ def save_top_peaks_report(corrected_df, sample_name, isotope_reference, output_d
     peak_counts = filtered_df['Counts'].iloc[peaks]
 
     # Get the top 25 peaks
-    top_peaks_idx = peak_counts.nlargest(25).index
+    top_peaks_idx = peak_counts.nlargest(50).index
 
     top_peaks_energies = peak_energies.loc[top_peaks_idx]
     top_peaks_counts = peak_counts.loc[top_peaks_idx]
@@ -116,18 +104,18 @@ def save_top_peaks_report(corrected_df, sample_name, isotope_reference, output_d
     energy_header = f'Energy ({energy_unit})'
     counts_header = 'Counts +/- Confidence Interval'
     rate_header = 'Count Rate +/- Confidence Interval'
-    formatted_report[0] = f"{energy_header:^18} {counts_header:^36} {rate_header:^30}"
+    formatted_report[0] = f"{energy_header:^18} {counts_header:^32} {rate_header:^40}"
     formatted_report = "\n".join(formatted_report)
 
-    with open(f'{output_dir}\\{sample_name}_Top_25_Peaks_Report.txt', 'w') as f:
-        f.write("Top 25 Peaks Report\n")
+    with open(f'{output_dir}\\{sample_name}_Top_50_Peaks_Report.txt', 'w') as f:
+        f.write("Top 50 Peaks Report\n")
         f.write(f"Sample: {sample_name}\n\n")
         f.write(formatted_report)
         f.write("\n\nLikely Isotopes:\n")
         for match in matches:
             f.write(f"Energy: {match[0]:.2f} {energy_unit}, Isotope: {match[1]}, Reference Energy: {match[2]:.2f} {energy_unit}, Confidence: {match[3]*100:.2f}%\n")
 
-def process_spectra(file_path, sheet_name, sample_names, energy_min, energy_max, output_dir, isotope_reference, energy_unit, T_s, T_b=None):
+def process_spectra_interactive(file_path, sheet_name, sample_names, energy_min, energy_max, output_dir, isotope_reference, energy_unit, T_s, T_b=None):
     df = read_data(file_path, sheet_name)
     
     for sample in sample_names:
@@ -139,8 +127,7 @@ def process_spectra(file_path, sheet_name, sample_names, energy_min, energy_max,
             background_df = df[['keV', 'Background']].rename(columns={'Background': 'Counts'})
             corrected_df = subtract_background(sample_df, background_df)
         
-        plot_full_spectrum(corrected_df, f"{sample}_Alpha" if energy_unit == 'MeV' else f"{sample}_Gamma", output_dir, energy_unit)
-        plot_zoomed_spectrum(corrected_df, f"{sample}_Alpha" if energy_unit == 'MeV' else f"{sample}_Gamma", energy_min, energy_max, output_dir, energy_unit)
+        plot_spectra_interactive(corrected_df, f"{sample}_Alpha" if energy_unit == 'MeV' else f"{sample}_Gamma", energy_unit, energy_min, energy_max, output_dir)
         save_top_peaks_report(corrected_df, f"{sample}_Alpha" if energy_unit == 'MeV' else f"{sample}_Gamma", isotope_reference, output_dir, energy_unit, T_s, T_b)
 
 def main(file_path):
@@ -155,6 +142,7 @@ def main(file_path):
     # Alpha measurement times
     T_s_alpha = 24 * 3600  # 24 hours in seconds
 
-    process_spectra(file_path, 'Gamma Spec', gamma_samples, 200, 500, output_dir, gamma_isotope_reference, 'keV', T_s_gamma, T_b_gamma)
-    process_spectra(file_path, 'Alpha', alpha_samples, 1, 6, output_dir, alpha_isotope_reference, 'MeV', T_s_alpha)
+    process_spectra_interactive(file_path, 'Gamma Spec', gamma_samples, 200, 500, output_dir, gamma_isotope_reference, 'keV', T_s_gamma, T_b_gamma)
+    process_spectra_interactive(file_path, 'Alpha', alpha_samples, 1, 6, output_dir, alpha_isotope_reference, 'MeV', T_s_alpha)
+
 main(r"C:\Users\17244\OneDrive\Grad School\NUCE 597\Exp4\Data.xlsx")
